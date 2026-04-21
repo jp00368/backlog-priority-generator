@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: transparent; }
+body {
+  font-family: "Source Sans Pro", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 13px;  /* overridden dynamically by JS */
+  color: #fafafa;
+}
+
+#wrapper {
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* height set dynamically by JS */
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+thead {
+  position: sticky;
+  top: 0;
+  background: #0e1117;
+  z-index: 10;
+}
+
+th {
+  padding: 6px 8px 8px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: #9aa5b4;
+  border-bottom: 2px solid #2d3748;
+  vertical-align: bottom;
+  line-height: 1.35;
+  white-space: pre-line;
+  position: relative;   /* needed for resize handle positioning */
+}
+th.center { text-align: center; }
+
+.col-resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  user-select: none;
+  z-index: 20;
+  border-right: 2px solid transparent;
+  transition: border-color 0.15s;
+}
+.col-resize-handle:hover,
+.col-resize-handle.active {
+  border-right-color: #4a90d9;
+}
+
+tbody tr {
+  border-bottom: 1px solid #1e2130;
+  transition: background 0.08s;
+  cursor: grab;
+}
+tbody tr:hover  { background: rgba(255,255,255,0.04); }
+tbody tr.dragging { opacity: 0.25; cursor: grabbing; }
+tbody tr.drag-over-top    { box-shadow: inset 0  2px 0 #ff4b4b; }
+tbody tr.drag-over-bottom { box-shadow: inset 0 -2px 0 #ff4b4b; }
+
+td {
+  padding: 7px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+  /* font-size inherited from body — set dynamically */
+}
+td.center { text-align: center; }
+
+/* Column widths */
+.c-handle { width: 26px; }
+.c-desc   { width: 30px; }
+.c-key    { width: 155px; }
+/* summary: no fixed width — takes all remaining space */
+.c-type   { width: 82px; }
+.c-status { width: 100px; }
+.c-extid  { width: 130px; }
+.c-exist  { width: 82px; }
+.c-new    { width: 72px; }
+.c-chk    { width: 52px; }
+
+.update-chk {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #ff4b4b;
+}
+
+.handle {
+  color: #4a5568;
+  font-size: 15px;
+  user-select: none;
+  cursor: grab;
+  display: block;
+  text-align: center;
+}
+
+a { color: #4da6ff; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.desc-btn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 1px 3px;
+  color: #718096;
+  line-height: 1;
+  display: block;
+  margin: 0 auto;
+}
+.desc-btn:hover {
+  color: #a0aec0;
+  border-color: #4a5568;
+  background: rgba(255,255,255,0.07);
+}
+
+.rank-badge {
+  display: inline-block;
+  background: #1a2744;
+  color: #90cdf4;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 28px;
+  text-align: center;
+}
+</style>
+</head>
+<body>
+
+<div id="wrapper">
+  <table>
+    <thead>
+      <tr>
+        <th class="c-handle"></th>
+        <th class="c-desc"></th>
+        <th class="c-key">Issue Key</th>
+        <th>Summary</th>
+        <th class="c-type">Issue&#10;Type</th>
+        <th class="c-status">Status</th>
+        <th class="c-extid">External&#10;ID</th>
+        <th class="c-exist center">Existing&#10;Priority</th>
+        <th class="c-new  center">New&#10;Priority</th>
+        <th class="c-chk  center">Update</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+<script>
+// ── Streamlit communication ──────────────────────────────────────────────────
+function postMsg(type, extra) {
+  var msg = Object.assign({ isStreamlitMessage: true, type: type }, extra || {});
+  window.parent.postMessage(msg, "*");
+}
+function setVal(value) {
+  postMsg("streamlit:setComponentValue", { value: value, dataType: "json" });
+}
+function setHeight(h) {
+  postMsg("streamlit:setFrameHeight", { height: h });
+}
+
+window.addEventListener("message", function(e) {
+  if (e.data && e.data.type === "streamlit:render") onRender(e.data.args);
+});
+
+// ── State ────────────────────────────────────────────────────────────────────
+var rows = [];
+var fontSize = 13;
+
+// ── Render ───────────────────────────────────────────────────────────────────
+function onRender(args) {
+  rows = args.data || [];
+  fontSize = args.font_size || 13;
+
+  // Apply font size to body (td inherits it)
+  document.body.style.fontSize = fontSize + "px";
+
+  buildTable(rows);
+
+  // Height: show up to 50 rows before scrolling
+  var rowH  = Math.round(fontSize * 2.85);   // ~37px at 13px font
+  var headH = 44;
+  var maxVisible = 50;
+  var visRows = Math.min(rows.length, maxVisible);
+  var wrapH = headH + visRows * rowH + 4;    // +4 for borders
+  document.getElementById("wrapper").style.maxHeight = wrapH + "px";
+  setHeight(wrapH + 4);
+}
+
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function buildTable(data) {
+  var tbody = document.getElementById("tbody");
+  tbody.innerHTML = "";
+
+  data.forEach(function(row, i) {
+    var tr = document.createElement("tr");
+    tr.draggable = true;
+    tr.dataset.origIdx = i;
+
+    var issueUrl = esc(row["Issue URL"] || "#");
+    var issueKey = esc((row["Issue URL"] || "").split("/browse/").pop() || row["Issue Key"] || "");
+    var rawKey   = (row["Issue URL"] || "").split("/browse/").pop() || row["Issue Key"] || "";
+    var summary  = esc(row["Summary"]    || "");
+    var itype    = esc(row["Issue Type"] || "");
+    var status   = esc(row["Status"]     || "");
+    var extid    = esc(row["External ID"] || "");
+    var existing = esc(row["Tracking ID"] != null ? String(row["Tracking ID"]) : "");
+    var selected = row["selected"] !== false;  // default true
+
+    tr.innerHTML =
+      '<td class="c-handle"><span class="handle">⠿</span></td>' +
+      '<td class="c-desc"><button class="desc-btn" data-key="' + esc(rawKey) + '" title="View description">📄</button></td>' +
+      '<td class="c-key"><a href="' + issueUrl + '" target="_blank">' + issueKey + '</a></td>' +
+      '<td title="' + summary + '">' + summary + '</td>' +
+      '<td class="c-type">'   + itype    + '</td>' +
+      '<td class="c-status">' + status + '</td>' +
+      '<td class="c-extid">'  + extid  + '</td>' +
+      '<td class="c-exist center">' + existing + '</td>' +
+      '<td class="c-new   center"><span class="rank-badge">' + esc(row["Rank"] || String(i + 1).padStart(3, '0')) + '</span></td>' +
+      '<td class="c-chk   center"><input type="checkbox" class="update-chk"' + (selected ? ' checked' : '') + '></td>';
+
+    tbody.appendChild(tr);
+  });
+
+  initDnd(tbody);
+  initDescButtons(tbody);
+  initCheckboxes(tbody);
+}
+
+// ── Checkbox toggles ──────────────────────────────────────────────────────────
+function initCheckboxes(tbody) {
+  tbody.addEventListener("change", function(e) {
+    var chk = e.target.closest(".update-chk");
+    if (!chk) return;
+    e.stopPropagation();
+    var tr = chk.closest("tr");
+    var origIdx = parseInt(tr.dataset.origIdx, 10);
+    setVal({ type: "toggle_update", idx: origIdx, checked: chk.checked });
+  });
+}
+
+// ── Description buttons ───────────────────────────────────────────────────────
+function initDescButtons(tbody) {
+  tbody.addEventListener("click", function(e) {
+    var btn = e.target.closest(".desc-btn");
+    if (!btn) return;
+    e.stopPropagation();
+    setVal({ type: "show_desc", key: btn.dataset.key });
+  });
+}
+
+// ── Drag and drop ─────────────────────────────────────────────────────────────
+function initDnd(tbody) {
+  var dragEl     = null;
+  var dropTarget = null;
+  var dropBefore = true;
+
+  function clearIndicators() {
+    tbody.querySelectorAll(".drag-over-top, .drag-over-bottom").forEach(function(r) {
+      r.classList.remove("drag-over-top", "drag-over-bottom");
+    });
+  }
+
+  tbody.addEventListener("dragstart", function(e) {
+    dragEl = e.target.closest("tr");
+    if (!dragEl) return;
+    setTimeout(function() { dragEl.classList.add("dragging"); }, 0);
+    e.dataTransfer.effectAllowed = "move";
+  });
+
+  tbody.addEventListener("dragover", function(e) {
+    e.preventDefault();
+    var target = e.target.closest("tr");
+    if (!target || target === dragEl) return;
+
+    clearIndicators();
+    dropTarget = target;
+    var rect = target.getBoundingClientRect();
+    dropBefore = e.clientY < rect.top + rect.height / 2;
+    target.classList.add(dropBefore ? "drag-over-top" : "drag-over-bottom");
+  });
+
+  tbody.addEventListener("dragleave", function(e) {
+    if (!e.relatedTarget || !tbody.contains(e.relatedTarget)) {
+      clearIndicators();
+      dropTarget = null;
+    }
+  });
+
+  tbody.addEventListener("dragend", function() {
+    if (!dragEl) return;
+    dragEl.classList.remove("dragging");
+    clearIndicators();
+
+    if (dropTarget && dropTarget !== dragEl) {
+      if (dropBefore) {
+        tbody.insertBefore(dragEl, dropTarget);
+      } else {
+        tbody.insertBefore(dragEl, dropTarget.nextSibling);
+      }
+    }
+
+    var trs = tbody.querySelectorAll("tr");
+    var newOrder = [];
+    trs.forEach(function(tr, i) {
+      var badge = tr.querySelector(".rank-badge");
+      if (badge) badge.textContent = String(i + 1).padStart(3, '0');
+      newOrder.push(parseInt(tr.dataset.origIdx, 10));
+    });
+
+    setVal({ type: "reorder", order: newOrder });
+    dragEl     = null;
+    dropTarget = null;
+  });
+}
+
+// ── Column resize ─────────────────────────────────────────────────────────────
+function initColResize() {
+  var ths = document.querySelectorAll("thead th");
+  ths.forEach(function(th, colIdx) {
+    // Skip the drag-handle and description-button columns
+    if (colIdx < 2) return;
+    // Avoid adding duplicate handles on re-renders
+    if (th.querySelector(".col-resize-handle")) return;
+
+    var resizeHandle = document.createElement("div");
+    resizeHandle.className = "col-resize-handle";
+    th.appendChild(resizeHandle);
+
+    resizeHandle.addEventListener("mousedown", function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      var startX     = e.clientX;
+      var startWidth = th.offsetWidth;
+      resizeHandle.classList.add("active");
+      document.body.style.cursor    = "col-resize";
+      document.body.style.userSelect = "none";
+
+      function onMouseMove(e) {
+        var newWidth = Math.max(40, startWidth + (e.clientX - startX));
+        th.style.width = newWidth + "px";
+      }
+
+      function onMouseUp() {
+        resizeHandle.classList.remove("active");
+        document.body.style.cursor    = "";
+        document.body.style.userSelect = "";
+        document.removeEventListener("mousemove", onMouseMove);
+        document.removeEventListener("mouseup",   onMouseUp);
+      }
+
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup",   onMouseUp);
+    });
+  });
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+window.addEventListener("load", function() {
+  initColResize();
+  postMsg("streamlit:componentReady", { apiVersion: 1 });
+});
+</script>
+</body>
+</html>
