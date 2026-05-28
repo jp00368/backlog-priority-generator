@@ -3,6 +3,7 @@ import pandas as pd
 
 import config
 import jira_client
+import sample_data
 from components.draggable_table import draggable_table
 
 st.set_page_config(page_title="Backlog Priority Generator", layout="wide")
@@ -10,6 +11,7 @@ st.title("Backlog Priority Generator")
 
 # --- Session state init ---
 if "issues_df"       not in st.session_state: st.session_state["issues_df"]       = None
+if "is_sample_data"  not in st.session_state: st.session_state["is_sample_data"]  = False
 if "descriptions"    not in st.session_state: st.session_state["descriptions"]    = {}
 if "editor_version"  not in st.session_state: st.session_state["editor_version"]  = 0
 if "_pending_desc"   not in st.session_state: st.session_state["_pending_desc"]   = None
@@ -17,6 +19,8 @@ if "history"         not in st.session_state: st.session_state["history"]       
 if "redo_stack"      not in st.session_state: st.session_state["redo_stack"]      = []  # redo stack (up to 5)
 
 HISTORY_LIMIT = 5
+BACKLOG_STATUSES = {"Backlog", "On Hold", "New", "Open", "Hold"}
+HIDDEN_LABELS: set = set()  # add label strings here to suppress them from the Labels column
 
 def _padded_ranks(n: int) -> list:
     """Return 3-digit zero-padded rank strings: ['001','002',...] sized to n."""
@@ -49,21 +53,23 @@ def show_description_dialog(issue_key: str, description: str):
 
 # --- Sidebar (keyed so fragment can read values via session_state) ---
 cfg = config.get_config()
+jira_disabled = True
 
 with st.sidebar:
     st.header("Jira Configuration")
+    st.caption("🔒 Jira integration — connect to your own instance.")
 
-    st.text_input("Jira URL",        value=cfg["jira_url"],        key="cfg_jira_url",   placeholder="https://your-org.atlassian.net")
-    st.text_input("API Token (PAT)", value=cfg["jira_api_token"],  key="cfg_api_token",  type="password")
-    st.text_input("Project Key",     value=cfg["jira_project_key"],key="cfg_project_key",placeholder="e.g. AIPRODUCT")
-    st.text_input("Tracking Field ID",   value=cfg["tracking_field_id"],    key="cfg_field_id",          placeholder="e.g. customfield_11400")
-    st.text_input("External ID Field ID", value=cfg["external_id_field_id"], key="cfg_ext_id_field_id",   placeholder="e.g. customfield_10000")
+    st.text_input("Jira URL",        value=cfg["jira_url"],        key="cfg_jira_url",        placeholder="https://your-org.atlassian.net", disabled=jira_disabled)
+    st.text_input("API Token (PAT)", value=cfg["jira_api_token"],  key="cfg_api_token",        type="password",                              disabled=jira_disabled)
+    st.text_input("Project Key",     value=cfg["jira_project_key"],key="cfg_project_key",      placeholder="e.g. AIPRODUCT",                 disabled=jira_disabled)
+    st.text_input("Tracking Field ID",    value=cfg["tracking_field_id"],    key="cfg_field_id",        placeholder="e.g. customfield_11400", disabled=jira_disabled)
+    st.text_input("External ID Field ID", value=cfg["external_id_field_id"], key="cfg_ext_id_field_id", placeholder="e.g. customfield_10000", disabled=jira_disabled)
 
     st.divider()
     st.subheader("Field ID Lookup")
     st.caption("Find the customfield_XXXXX ID for your Tracking ID field.")
 
-    if st.button("List Custom Fields"):
+    if st.button("List Custom Fields", disabled=jira_disabled):
         jira_url  = st.session_state["cfg_jira_url"]
         api_token = st.session_state["cfg_api_token"]
         if not all([jira_url, api_token]):
@@ -77,18 +83,46 @@ with st.sidebar:
                     st.error(str(e))
 
 
-# --- JQL + Fetch ---
-st.subheader("Import Issues")
+# --- Sample data loader ---
+if st.session_state["is_sample_data"]:
+    st.info(
+        "📋 **Sample dataset loaded** — 20 demo issues from a fictional insurance AI product backlog. "
+        "Drag rows to reprioritize. Connect your Jira in the sidebar to work with real issues.",
+        icon=None,
+    )
+    if st.button("Clear sample data", type="secondary"):
+        st.session_state["issues_df"]      = None
+        st.session_state["is_sample_data"] = False
+        st.session_state["descriptions"]   = {}
+        st.session_state["history"]        = []
+        st.session_state["redo_stack"]     = []
+        st.rerun()
+else:
+    if st.button("Load sample data", type="secondary"):
+        df = sample_data.get_sample_dataframe()
+        st.session_state["descriptions"]   = dict(zip(df["Issue Key"], df["Description"]))
+        st.session_state["issues_df"]      = df
+        st.session_state["is_sample_data"] = True
+        st.session_state["editor_version"] = st.session_state.get("editor_version", 0) + 1
+        st.session_state["history"]        = []
+        st.session_state["redo_stack"]     = []
+        st.rerun()
 
-default_jql = 'project = AIPRODUCT AND Status != "Done" AND Type != "Task" AND labels in (CAMI) ORDER BY "Tracking ID" ASC'
+st.divider()
+
+# --- JQL + Fetch ---
+st.subheader("Import Issues from Jira")
+
+default_jql = ""
 jql_query = st.text_input(
     "JQL Query or Filter ID",
     value=default_jql,
     key="jql_query",
     help="Enter a JQL query or a numeric saved filter ID (e.g. 12345).",
+    disabled=jira_disabled,
 )
 
-fetch_btn = st.button("Fetch Issues from Jira", type="primary")
+fetch_btn = st.button("Fetch Issues from Jira", type="primary", disabled=jira_disabled)
 
 if fetch_btn:
     jira_url     = st.session_state["cfg_jira_url"]
@@ -127,15 +161,15 @@ if fetch_btn:
 
 # --- Add single issue ---
 if st.session_state["issues_df"] is not None:
-    with st.expander("Add an issue by ID"):
+    with st.expander("Add an issue by ID", disabled=jira_disabled):
         add_col1, add_col2 = st.columns([3, 1])
         with add_col1:
             add_key = st.text_input(
                 "Issue Key", placeholder="e.g. AIPRODUCT-123",
-                label_visibility="collapsed"
+                label_visibility="collapsed", disabled=jira_disabled,
             )
         with add_col2:
-            add_btn = st.button("Add Issue", use_container_width=True)
+            add_btn = st.button("Add Issue", use_container_width=True, disabled=jira_disabled)
 
         if add_btn:
             jira_url     = st.session_state["cfg_jira_url"]
@@ -189,6 +223,8 @@ def render_table():
     with col2:
         st.metric("Total", len(df))
 
+    show_inprogress = st.toggle("Show In Progress items", value=False, key="show_inprogress")
+
     ctrl_col, undo_col, redo_col, font_col = st.columns([5, 1, 1, 2])
     with ctrl_col:
         st.caption("Drag rows to reorder. Click 📄 to preview an issue's description.")
@@ -229,10 +265,12 @@ def render_table():
             "Summary":     row.get("Summary", ""),
             "Issue Type":  row.get("Issue Type", ""),
             "Status":      row.get("Status", ""),
-            "External ID": str(row.get("External ID", "") or ""),
+            "Labels":      ", ".join(l for l in (row.get("Labels", "") or "").split(", ") if l and l.strip().lower() not in HIDDEN_LABELS),
+            "LoE":         str(row.get("External ID", "") or ""),
             "Tracking ID": str(row.get("Tracking ID", "") or ""),
             "Rank":        str(row.get("Rank", "")),
             "selected":    bool(row.get("UpdateJira", True)),
+            "hidden":      row.get("Status", "") not in BACKLOG_STATUSES and not show_inprogress,
         }
         for _, row in df.iterrows()
     ]
@@ -276,7 +314,7 @@ def render_table():
     field_id     = st.session_state.get("cfg_field_id", "")
     ext_field_id = st.session_state.get("cfg_ext_id_field_id", "")
 
-    if st.button("Update Issues in Jira", type="primary"):
+    if st.button("Update Issues in Jira", type="primary", disabled=jira_disabled):
         if not all([jira_url, api_token, field_id]):
             st.error("Fill in Jira URL, API Token, and Tracking Field ID in the sidebar.")
         else:

@@ -1,0 +1,223 @@
+"""
+Sample backlog data for demo mode.
+Returns a DataFrame matching the shape produced by jira_client.fetch_issues_by_jql.
+"""
+import pandas as pd
+
+SAMPLE_JIRA_URL = "https://demo.atlassian.net"
+
+SAMPLE_ISSUES = [
+    {
+        "Issue Key":   "DEMO-101",
+        "Summary":     "Build knowledge graph ingestion pipeline for policy documents",
+        "Description": "Ingest and parse carrier policy PDFs into the Company Brain knowledge graph. Documents should be chunked, embedded, and linked to the correct product and carrier nodes.",
+        "Issue Type":  "Story",
+        "Status":      "Backlog",
+        "Labels":      "knowledge-graph, ingestion",
+        "External ID": "3",
+        "Tracking ID": "005",
+    },
+    {
+        "Issue Key":   "DEMO-102",
+        "Summary":     "Design agent routing logic for multi-step coverage queries",
+        "Description": "When a broker asks a compound question (e.g. 'Does carrier X cover Y for Z?'), route sub-questions to specialized agents and aggregate results before responding.",
+        "Issue Type":  "Story",
+        "Status":      "Backlog",
+        "Labels":      "agent-core, routing",
+        "External ID": "5",
+        "Tracking ID": "003",
+    },
+    {
+        "Issue Key":   "DEMO-103",
+        "Summary":     "Implement carrier appetite matching agent",
+        "Description": "Given a risk profile, return ranked list of carriers whose appetite matches. Pull appetite rules from knowledge graph and score against submission fields.",
+        "Issue Type":  "Story",
+        "Status":      "Backlog",
+        "Labels":      "agent-core, appetite",
+        "External ID": "8",
+        "Tracking ID": "001",
+    },
+    {
+        "Issue Key":   "DEMO-104",
+        "Summary":     "Add auth layer — SSO via Okta",
+        "Description": "Integrate Okta SAML for broker portal login. Enforce role-based access: broker, carrier, admin.",
+        "Issue Type":  "Story",
+        "Status":      "Backlog",
+        "Labels":      "auth, platform",
+        "External ID": "2",
+        "Tracking ID": "008",
+    },
+    {
+        "Issue Key":   "DEMO-105",
+        "Summary":     "Build quote comparison view — side-by-side carrier output",
+        "Description": "Render two or more carrier quote responses side by side with delta highlighting on premium, deductible, and exclusions.",
+        "Issue Type":  "Story",
+        "Status":      "Backlog",
+        "Labels":      "ui, quotes",
+        "External ID": "5",
+        "Tracking ID": "006",
+    },
+    {
+        "Issue Key":   "DEMO-106",
+        "Summary":     "Spike: evaluate LLM options for document extraction",
+        "Description": "Compare Claude 3.5, GPT-4o, and Gemini Pro on policy document extraction accuracy. Score against 50-document benchmark set.",
+        "Issue Type":  "Spike",
+        "Status":      "Backlog",
+        "Labels":      "research, llm",
+        "External ID": "1",
+        "Tracking ID": "012",
+    },
+    {
+        "Issue Key":   "DEMO-107",
+        "Summary":     "Carrier data connector — ACORD 125 form parsing",
+        "Description": "Parse ACORD 125 commercial lines application forms and map fields to our internal submission schema.",
+        "Issue Type":  "Story",
+        "Status":      "Backlog",
+        "Labels":      "ingestion, acord",
+        "External ID": "5",
+        "Tracking ID": "004",
+    },
+    {
+        "Issue Key":   "DEMO-108",
+        "Summary":     "Define and document agent output schema v1",
+        "Description": "Establish the canonical JSON schema for all agent responses. Required for front-end rendering and downstream integrations.",
+        "Issue Type":  "Task",
+        "Status":      "Backlog",
+        "Labels":      "platform, docs",
+        "External ID": "2",
+        "Tracking ID": "009",
+    },
+    {
+        "Issue Key":   "DEMO-109",
+        "Summary":     "Build broker-facing chat interface MVP",
+        "Description": "Simple conversational UI for brokers to query the Company Brain. Supports follow-up questions, source citation, and feedback thumbs.",
+        "Issue Type":  "Story",
+        "Status":      "Backlog",
+        "Labels":      "ui, chat",
+        "External ID": "8",
+        "Tracking ID": "002",
+    },
+    {
+        "Issue Key":   "DEMO-110",
+        "Summary":     "Knowledge graph: model carrier node relationships",
+        "Description": "Define the graph schema for carrier → product → appetite → exclusions relationships. Align with insurance ontology standards.",
+        "Issue Type":  "Story",
+        "Status":      "Backlog",
+        "Labels":      "knowledge-graph, modeling",
+        "External ID": "5",
+        "Tracking ID": "007",
+    },
+    {
+        "Issue Key":   "DEMO-111",
+        "Summary":     "Set up CI/CD pipeline — GitHub Actions to AWS",
+        "Description": "Automated test + deploy on merge to main. Environments: dev, staging, prod.",
+        "Issue Type":  "Task",
+        "Status":      "Backlog",
+        "Labels":      "devops, platform",
+        "External ID": "3",
+        "Tracking ID": "010",
+    },
+    {
+        "Issue Key":   "DEMO-112",
+        "Summary":     "Rate table ingestion — structured carrier pricing data",
+        "Description": "Ingest rate tables from carrier portals and normalize to internal pricing schema for use in quote generation.",
+        "Issue Type":  "Story",
+        "Status":      "Backlog",
+        "Labels":      "ingestion, pricing",
+        "External ID": "8",
+        "Tracking ID": "011",
+    },
+    {
+        "Issue Key":   "DEMO-113",
+        "Summary":     "Implement submission pre-fill from prior policy data",
+        "Description": "When a broker starts a new submission for an existing account, pre-fill fields from the most recent bound policy in the system.",
+        "Issue Type":  "Story",
+        "Status":      "On Hold",
+        "Labels":      "ui, submissions",
+        "External ID": "5",
+        "Tracking ID": "013",
+    },
+    {
+        "Issue Key":   "DEMO-114",
+        "Summary":     "Add observability — LLM call tracing and cost dashboard",
+        "Description": "Integrate LangSmith or equivalent. Track token usage, latency, and cost per agent per query. Surface in admin dashboard.",
+        "Issue Type":  "Story",
+        "Status":      "In Progress",
+        "Labels":      "observability, platform",
+        "External ID": "3",
+        "Tracking ID": "014",
+    },
+    {
+        "Issue Key":   "DEMO-115",
+        "Summary":     "Carrier portal scraper — automated appetite updates",
+        "Description": "Scheduled scraper that detects when carrier appetite guidelines change on their portal and flags affected knowledge graph nodes for review.",
+        "Issue Type":  "Story",
+        "Status":      "Backlog",
+        "Labels":      "ingestion, automation",
+        "External ID": "13",
+        "Tracking ID": "015",
+    },
+    {
+        "Issue Key":   "DEMO-116",
+        "Summary":     "Build exclusion conflict detection agent",
+        "Description": "Given a bound policy and a new quote, surface any conflicting exclusions that could create a coverage gap for the insured.",
+        "Issue Type":  "Story",
+        "Status":      "New",
+        "Labels":      "agent-core, compliance",
+        "External ID": "8",
+        "Tracking ID": "016",
+    },
+    {
+        "Issue Key":   "DEMO-117",
+        "Summary":     "Implement feedback loop — broker correction capture",
+        "Description": "When a broker overrides an agent suggestion, capture the correction and route to training pipeline for model improvement.",
+        "Issue Type":  "Story",
+        "Status":      "Backlog",
+        "Labels":      "rlhf, agent-core",
+        "External ID": "5",
+        "Tracking ID": "017",
+    },
+    {
+        "Issue Key":   "DEMO-118",
+        "Summary":     "Document Company Brain architecture — internal wiki",
+        "Description": "Write architecture overview covering knowledge graph, agent routing, data ingestion, and carrier integrations. Target audience: engineering onboarding.",
+        "Issue Type":  "Task",
+        "Status":      "Backlog",
+        "Labels":      "docs, platform",
+        "External ID": "2",
+        "Tracking ID": "018",
+    },
+    {
+        "Issue Key":   "DEMO-119",
+        "Summary":     "Performance test: 100 concurrent broker sessions",
+        "Description": "Load test the agent API at 100 concurrent sessions. Target p95 latency under 4s for single-turn queries.",
+        "Issue Type":  "Spike",
+        "Status":      "Backlog",
+        "Labels":      "performance, platform",
+        "External ID": "3",
+        "Tracking ID": "019",
+    },
+    {
+        "Issue Key":   "DEMO-120",
+        "Summary":     "Carrier onboarding self-service portal — MVP",
+        "Description": "Allow new carrier partners to upload their appetite guidelines and rate tables through a guided web flow, without engineering involvement.",
+        "Issue Type":  "Story",
+        "Status":      "New",
+        "Labels":      "ui, carrier-onboarding",
+        "External ID": "13",
+        "Tracking ID": "020",
+    },
+]
+
+
+def get_sample_dataframe(jira_url: str = SAMPLE_JIRA_URL) -> pd.DataFrame:
+    """Return sample issues as a DataFrame, pre-sorted by Tracking ID."""
+    df = pd.DataFrame(SAMPLE_ISSUES)
+    df["_tid_sort"] = pd.to_numeric(df["Tracking ID"], errors="coerce")
+    df = df.sort_values("_tid_sort").reset_index(drop=True)
+    df.drop(columns=["_tid_sort"], inplace=True)
+    n = len(df)
+    df["Rank"] = [str(i + 1).zfill(3) for i in range(n)]
+    df["UpdateJira"] = False   # sample data — never write back to Jira
+    df["Issue URL"] = jira_url.rstrip("/") + "/browse/" + df["Issue Key"]
+    return df

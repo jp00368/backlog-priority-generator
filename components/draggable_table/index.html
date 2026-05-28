@@ -88,7 +88,8 @@ td.center { text-align: center; }
 /* summary: no fixed width — takes all remaining space */
 .c-type   { width: 82px; }
 .c-status { width: 100px; }
-.c-extid  { width: 130px; }
+.c-labels { width: 120px; }
+.c-extid  { width: 80px; }
 .c-exist  { width: 82px; }
 .c-new    { width: 72px; }
 .c-chk    { width: 52px; }
@@ -155,7 +156,8 @@ a:hover { text-decoration: underline; }
         <th>Summary</th>
         <th class="c-type">Issue&#10;Type</th>
         <th class="c-status">Status</th>
-        <th class="c-extid">External&#10;ID</th>
+        <th class="c-labels">Labels</th>
+        <th class="c-extid">LoE</th>
         <th class="c-exist center">Existing&#10;Priority</th>
         <th class="c-new  center">New&#10;Priority</th>
         <th class="c-chk  center">Update</th>
@@ -196,13 +198,14 @@ function onRender(args) {
 
   buildTable(rows);
 
-  // Height: show up to 50 rows before scrolling
   var rowH  = Math.round(fontSize * 2.85);   // ~37px at 13px font
   var headH = 44;
-  var maxVisible = 50;
-  var visRows = Math.min(rows.length, maxVisible);
-  var wrapH = headH + visRows * rowH + 4;    // +4 for borders
-  document.getElementById("wrapper").style.maxHeight = wrapH + "px";
+  var visibleCount = rows.filter(function(r) { return !r["hidden"]; }).length;
+  var fullH = headH + visibleCount * rowH + 4;
+  var parentVH = 700;
+  try { parentVH = window.parent.innerHeight; } catch(e) {}
+  var wrapH = Math.min(fullH, Math.round(parentVH * 0.65));
+  document.getElementById("wrapper").style.height = wrapH + "px";
   setHeight(wrapH + 4);
 }
 
@@ -220,8 +223,13 @@ function buildTable(data) {
 
   data.forEach(function(row, i) {
     var tr = document.createElement("tr");
-    tr.draggable = true;
     tr.dataset.origIdx = i;
+    if (row["hidden"]) {
+      tr.style.display = "none";
+      tr.draggable = false;
+    } else {
+      tr.draggable = true;
+    }
 
     var issueUrl = esc(row["Issue URL"] || "#");
     var issueKey = esc((row["Issue URL"] || "").split("/browse/").pop() || row["Issue Key"] || "");
@@ -229,7 +237,8 @@ function buildTable(data) {
     var summary  = esc(row["Summary"]    || "");
     var itype    = esc(row["Issue Type"] || "");
     var status   = esc(row["Status"]     || "");
-    var extid    = esc(row["External ID"] || "");
+    var labels   = esc(row["Labels"]  || "");
+    var extid    = esc(row["LoE"]     || "");
     var existing = esc(row["Tracking ID"] != null ? String(row["Tracking ID"]) : "");
     var selected = row["selected"] !== false;  // default true
 
@@ -240,6 +249,7 @@ function buildTable(data) {
       '<td title="' + summary + '">' + summary + '</td>' +
       '<td class="c-type">'   + itype    + '</td>' +
       '<td class="c-status">' + status + '</td>' +
+      '<td class="c-labels" title="' + labels + '">' + labels + '</td>' +
       '<td class="c-extid">'  + extid  + '</td>' +
       '<td class="c-exist center">' + existing + '</td>' +
       '<td class="c-new   center"><span class="rank-badge">' + esc(row["Rank"] || String(i + 1).padStart(3, '0')) + '</span></td>' +
@@ -277,9 +287,13 @@ function initDescButtons(tbody) {
 
 // ── Drag and drop ─────────────────────────────────────────────────────────────
 function initDnd(tbody) {
-  var dragEl     = null;
-  var dropTarget = null;
-  var dropBefore = true;
+  var dragEl        = null;
+  var dropTarget    = null;
+  var dropBefore    = true;
+  var scrollTimer   = null;
+  var wrapper       = document.getElementById("wrapper");
+  var SCROLL_ZONE   = 60;  // px from edge that triggers scroll
+  var SCROLL_SPEED  = 8;   // px per tick
 
   function clearIndicators() {
     tbody.querySelectorAll(".drag-over-top, .drag-over-bottom").forEach(function(r) {
@@ -287,11 +301,34 @@ function initDnd(tbody) {
     });
   }
 
+  function stopScroll() {
+    if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
+  }
+
+  function startScroll(dir) {
+    stopScroll();
+    scrollTimer = setInterval(function() {
+      wrapper.scrollTop += dir * SCROLL_SPEED;
+    }, 16);
+  }
+
   tbody.addEventListener("dragstart", function(e) {
     dragEl = e.target.closest("tr");
     if (!dragEl) return;
     setTimeout(function() { dragEl.classList.add("dragging"); }, 0);
     e.dataTransfer.effectAllowed = "move";
+  });
+
+  document.addEventListener("dragover", function(e) {
+    if (!dragEl) return;
+    var wRect = wrapper.getBoundingClientRect();
+    if (e.clientY < wRect.top + SCROLL_ZONE) {
+      startScroll(-1);
+    } else if (e.clientY > wRect.bottom - SCROLL_ZONE) {
+      startScroll(1);
+    } else {
+      stopScroll();
+    }
   });
 
   tbody.addEventListener("dragover", function(e) {
@@ -317,6 +354,7 @@ function initDnd(tbody) {
     if (!dragEl) return;
     dragEl.classList.remove("dragging");
     clearIndicators();
+    stopScroll();
 
     if (dropTarget && dropTarget !== dragEl) {
       if (dropBefore) {
