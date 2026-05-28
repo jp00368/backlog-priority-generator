@@ -161,7 +161,7 @@ if fetch_btn:
 
 # --- Add single issue ---
 if st.session_state["issues_df"] is not None:
-    with st.expander("Add an issue by ID", disabled=jira_disabled):
+    with st.expander("Add an issue by ID"):
         add_col1, add_col2 = st.columns([3, 1])
         with add_col1:
             add_key = st.text_input(
